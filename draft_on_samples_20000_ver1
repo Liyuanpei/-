@@ -1,0 +1,214 @@
+import pandas as pd
+import time
+import numpy as np
+
+from keras.models import Sequential
+from keras.layers import Dense, Dropout, BatchNormalization, Activation
+from keras.callbacks import LearningRateScheduler
+from keras.optimizers import Adam
+from sklearn.metrics import roc_auc_score
+from sklearn.model_selection import train_test_split
+from keras import callbacks
+import matplotlib as plt
+from keras.utils.np_utils import to_categorical
+
+
+def model1():
+    dtypes = {
+        'ID',
+        'Query',
+        'ID2',
+        'title',
+        'predict'
+    }
+    t0 = time.time()
+    train = pd.read_csv('F:\\大三下\\人工智能导论\\学习过程\\数据挑战赛\\train_data.csv', header=None)
+    print('Loaded ' + str(len(train)) + ' Rows of data')
+
+    set0 = train.iloc[:, 0]
+    set1 = train.iloc[:, 1]
+    set2 = train.iloc[:, 2]
+    set3 = train.iloc[:, 3]
+    set4 = train.iloc[:, 4]
+    query_set = []
+    title_set = []
+    for x in set1:  # 此部分可根据query的不同id优化，优化等级为1/3 - 1/5
+        buf = str(x)
+        query_set.append(list(buf.split(' ')))
+    for x in set3:
+        buf = str(x)
+        title_set.append(list(buf.split(' ')))
+
+    for i in range(0, len(query_set)):
+        query_set[i].extend(title_set[i])  # 直接这样加会让query内部各个title之间的区分度变小
+    a = 0
+    for i in range(0, len(query_set)):
+        if a > len(query_set[i]):
+            continue
+        if a <= len(query_set[i]):
+            a = len(query_set[i])
+    b = 0
+    for i in range(0, len(title_set)):
+        if b > len(query_set[i]):
+            continue
+        if b <= len(query_set[i]):
+            b = len(query_set[i])
+
+    t1 = time.time()
+    print('Used ' + str(t1 - t0) + ' sec')
+
+    #  若转换为数组，则要记录最大长度（行的）
+    predictor = np.zeros([len(query_set), a])
+    response = np.array(set4)
+    for i in range(0, len(query_set)):
+        predictor[i, 0:len(query_set[i])] = (np.array(query_set[i]))
+
+    predictor2 = np.zeros([len(title_set), b])
+    for i in range(0, len(title_set)):
+        predictor2[i, 0:len(title_set[i])] = (np.array(title_set[i]))
+
+    train_x = np.array(predictor2)
+    train_y = response
+
+    X_train, X_val, Y_train, Y_val = train_test_split(
+        train_x, train_y, test_size=0.3)
+
+    model = Sequential()
+    model.add(Dense(300, input_dim=(b)))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+    model.add(Activation('relu'))
+    model.add(Dense(300))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+    model.add(Activation('relu'))
+    model.add(Dense(1, activation='sigmoid'))
+    model.compile(optimizer=Adam(lr=0.01), loss="binary_crossentropy", metrics=["accuracy"])
+    annealer = LearningRateScheduler(lambda x: 1e-2 * 0.95 ** x)
+    model.fit(X_train, Y_train, batch_size=320, epochs=1000, callbacks=[annealer, printAUC(X_train, Y_train)],
+              validation_data=(X_val, Y_val), verbose=2)
+
+    tn = time.time()
+    print('Used ' + str(tn - t0) + ' sec')
+
+
+def model2():
+    t0 = time.time()
+    train = pd.read_csv('F:\\大三下\\人工智能导论\\学习过程\\数据挑战赛\\train_data.csv', header=None)
+    print('Loaded ' + str(len(train)) + ' Rows of data')
+
+    set0 = train.iloc[:, 0]
+    set1 = train.iloc[:, 1]
+    set2 = train.iloc[:, 2]
+    set3 = train.iloc[:, 3]
+    set4 = train.iloc[:, 4]
+    query_set = []
+    title_set = []
+    for x in set1:  # 此部分可根据query的不同id优化，优化等级为1/3 - 1/5
+        buf = str(x)
+        query_set.append(list(buf.split(' ')))
+    for x in set3:
+        buf = str(x)
+        title_set.append(list(buf.split(' ')))
+
+    diversity = set0[len(set0) - 1]
+    buffer = np.zeros([diversity, 1])
+    buffer_list1 = []
+    buffer_list2 = []
+    sub_counter1 = 1
+    sub_counter2 = 0
+
+    for i in range(0, len(query_set) - 1):
+
+        if query_set[i] == query_set[i + 1]:
+            sub_counter1 = sub_counter1 + 1
+            sub_counter2 = sub_counter2 + set4[i]
+        else:
+            sub_counter2 = sub_counter2 + set4[i]
+            buffer_list1.append(sub_counter1)
+            buffer_list2.append(sub_counter2 / sub_counter1)
+            sub_counter2 = 0
+            sub_counter1 = 1
+    buffer_list2.append(sub_counter2 / sub_counter1)
+    buffer_list1.append(sub_counter1)
+    buffer = np.array(buffer_list1)
+    vote_value = np.array(buffer_list2)
+    vote_response = []
+
+    for i in range(0, len(buffer)):
+
+        for j in range(0, buffer[i]):
+
+            vote_response.append(buffer[i])
+            #  vote value[1]
+    response = np.array(vote_response)
+
+    a = 0
+    for i in range(0, len(query_set)):
+        if a > len(query_set[i]):
+            continue
+        if a <= len(query_set[i]):
+            a = len(query_set[i])
+
+    predictor = np.zeros([len(query_set), a])
+    for i in range(0, len(query_set)):
+        predictor[i, 0:len(query_set[i])] = (np.array(query_set[i]))
+
+    categorical_labels = to_categorical(response, num_classes=None)
+    train_x = np.array(predictor)
+    train_y = categorical_labels
+
+    X_train, X_val, Y_train, Y_val = train_test_split(
+        train_x, train_y, test_size=0.3)
+
+    model = Sequential()
+    model.add(Dense(300, input_dim=(a)))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+    model.add(Activation('relu'))
+    model.add(Dense(300))
+    model.add(Dropout(0.2))
+    model.add(BatchNormalization())
+    model.add(Activation('relu'))
+    model.add(Dense(len(Y_train[1]), activation='relu'))
+    model.compile(optimizer=Adam(lr=0.01), loss="categorical_crossentropy", metrics=["accuracy"])
+    annealer = LearningRateScheduler(lambda x: 1e-2 * 0.95 ** x)
+
+    # 这种方式不支持连续性数据不支持多种类,
+    #  model.fit(X_train, Y_train, batch_size=320, epochs=1000, verbose=2)
+    model.fit(X_train, Y_train, batch_size=64, epochs=1000, callbacks=[annealer], shuffle=True,
+              validation_data=(X_val, Y_val), verbose=2)
+    #  这样预处理后用神经网络效果很差， 二元交叉熵不支持浮点数和多类型， 均方差是零， 分类交叉熵0.24而且后来也没正确率了
+
+
+
+
+
+    print('Thread Terminated')
+
+
+class printAUC(callbacks.Callback):
+    def __init__(self, X_train, y_train):
+        super(printAUC, self).__init__()
+        self.bestAUC = 0
+        self.X_train = X_train
+        self.y_train = y_train
+
+    def on_epoch_end(self, epoch, logs={}):
+        pred = self.model.predict(np.array(self.X_train))
+        auc = roc_auc_score(self.y_train, pred)
+        print("Train AUC: " + str(auc))
+        pred = self.model.predict(self.validation_data[0])
+        auc = roc_auc_score(self.validation_data[1], pred)
+        print("Validation AUC: " + str(auc))
+        if (self.bestAUC < auc):
+            self.bestAUC = auc
+            self.model.save("bestNet1.h5", overwrite=True)
+        return
+
+
+if __name__ == '__main__':
+
+    print('Program execution ')
+    model2()
+
